@@ -8,6 +8,9 @@ H=/home/t3
 mkdir -p "$H/workspace"
 [ "$(stat -c %u "$H")" = 1000 ] && [ "$(stat -c %u "$H/workspace")" = 1000 ] || chown -R t3:t3 "$H"
 
+# T3 names a Linux environment after PRETTY_HOSTNAME, else the container hostname, which changes on every deploy.
+[ -n "${T3_ENVIRONMENT_LABEL:-}" ] && printf 'PRETTY_HOSTNAME="%s"\n' "$T3_ENVIRONMENT_LABEL" > /etc/machine-info
+
 as_t3() { setpriv --reuid=1000 --regid=1000 --init-groups env HOME="$H" USER=t3 LOGNAME=t3 SHELL=/bin/bash "$@"; }
 
 # Optional keys, applied once so a login done in the app is never overwritten.
