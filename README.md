@@ -6,7 +6,7 @@
 
 ## About Hosting T3 Code
 
-One service, one volume. The pinned `t3` server (v0.1.3, checksum-verified at build) runs behind nginx on your Railway domain. It serves the T3 web app and the API that the [iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824) and [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code) apps, the desktop app and [app.t3.codes](https://app.t3.codes) connect to.
+One service, one volume. The pinned `t3` server (v0.1.5, checksum-verified at build) runs behind nginx on your Railway domain. It serves the T3 web app and the API that the [iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824) and [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code) apps, the desktop app and [app.t3.codes](https://app.t3.codes) connect to.
 
 - **Locked by default, with T3's own auth.** Every API call, WebSocket and terminal needs a T3 session, and a device only gets one by pairing with a one-time link. Nothing is open to whoever finds the URL. The mobile apps, the desktop app and app.t3.codes connect through this same lock. A basic-auth gateway in front would have blocked them.
 - **A pairing page instead of digging through logs.** Open `https://<your-domain>/railway-pair` and sign in with the generated `T3_SETUP_PASSWORD`. The page mints a one-time pairing link that lasts 15 minutes, with a QR code for the phone app. The one-time admin token `t3 serve` prints at boot is redacted from the logs.
