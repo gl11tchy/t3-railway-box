@@ -3,8 +3,8 @@ FROM ubuntu:24.04
 # Bump here. T3: version + sha256 of t3-<v>-linux-x64.tar.gz from the release's SHA256SUMS.
 # `# upgrade:` lines tell dispatched.zaur.app where to look for newer releases.
 # upgrade: github pingdotgg/t3code
-ARG T3_VERSION=0.1.5
-ARG T3_SHA256=21d50dcc9c634221b11b58d6a94350d2c6ee36905737b054b11fa4eba295a98b
+ARG T3_VERSION=0.1.6
+ARG T3_SHA256=7cf31da90dee41f524dd5b679ebb6d404637ca5d9dc6fd8bc019511d57bb77e6
 # upgrade: npm @anthropic-ai/claude-code
 ARG CLAUDE_CODE_VERSION=2.1.309
 # upgrade: npm @openai/codex
