@@ -18,13 +18,17 @@ fi
 
 # nginx on $PORT. /railway-pair (password page) mints pairing links; everything else
 # is the T3 server, which authenticates every API call, WebSocket and terminal itself.
+# Railway's proxy hides client IPs, so the limit is one shared bucket: 10 password
+# tries a minute in total, which makes online guessing hopeless whatever the hardware.
 cat > /etc/nginx/conf.d/t3.conf <<CFG
+limit_req_zone \$server_name zone=pair:1m rate=10r/m;
+limit_req_status 429;
 server {
   listen ${PORT} default_server;
   listen [::]:${PORT} default_server;
   client_max_body_size 200m;
   location = /healthcheck { proxy_pass http://127.0.0.1:3773/.well-known/t3/environment; }
-  location = /railway-pair { proxy_pass http://127.0.0.1:3774; proxy_set_header Host \$http_host; }
+  location = /railway-pair { limit_req zone=pair burst=5 nodelay; proxy_pass http://127.0.0.1:3774; proxy_set_header Host \$http_host; }
   location / {
     proxy_pass http://127.0.0.1:3773;
     proxy_http_version 1.1;
