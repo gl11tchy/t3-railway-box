@@ -1,0 +1,45 @@
+name: Bump T3 to latest release
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-t3
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bump Dockerfile to the latest stable T3 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current=$(sed -n 's/^ARG T3_VERSION=//p' Dockerfile)
+          latest=$(gh api repos/pingdotgg/t3code/releases/latest --jq .tag_name | sed 's/^v//')
+          echo "current=$current latest=$latest"
+          if [ "$current" = "$latest" ]; then exit 0; fi
+          if [ "$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -1)" != "$latest" ]; then
+            echo "latest release $latest is older than pinned $current; leaving it"; exit 0
+          fi
+
+          asset="t3-${latest}-linux-x64.tar.gz"
+          base="https://github.com/pingdotgg/t3code/releases/download/v${latest}"
+          sha=$(curl -fsSL "$base/SHA256SUMS" | awk -v f="$asset" '$2==f {print $1}')
+          [ -n "$sha" ] || { echo "no checksum for $asset"; exit 1; }
+          curl -fsSL -o /tmp/t3.tgz "$base/$asset"
+          echo "$sha  /tmp/t3.tgz" | sha256sum -c -
+
+          sed -i "s/^ARG T3_VERSION=.*/ARG T3_VERSION=${latest}/; s/^ARG T3_SHA256=.*/ARG T3_SHA256=${sha}/" Dockerfile
+          git config user.name gl11tchy
+          git config user.email 211956100+gl11tchy@users.noreply.github.com
+          git commit -am "Bump T3 server to ${latest} to match the desktop app"
+          git push
