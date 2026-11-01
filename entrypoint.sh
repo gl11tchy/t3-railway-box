@@ -21,7 +21,7 @@ fi
 # Railway's proxy hides client IPs, so the limit is one shared bucket: 10 password
 # tries a minute in total, which makes online guessing hopeless whatever the hardware.
 cat > /etc/nginx/conf.d/t3.conf <<CFG
-limit_req_zone \$server_name zone=pair:1m rate=10r/m;
+limit_req_zone \$host zone=pair:1m rate=10r/m;
 limit_req_status 429;
 server {
   listen ${PORT} default_server;
