@@ -52,6 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY railway-pair.mjs /opt/railway-pair.mjs
+COPY railway-pair-hint.js /opt/railway-pair-hint.js
 COPY entrypoint.sh /entrypoint.sh
 COPY drop-file-cache /usr/local/bin/drop-file-cache
 

@@ -28,6 +28,7 @@ server {
   listen [::]:${PORT} default_server;
   client_max_body_size 200m;
   location = /healthcheck { proxy_pass http://127.0.0.1:3773/.well-known/t3/environment; }
+  location = /railway-pair-hint.js { alias /opt/railway-pair-hint.js; default_type application/javascript; }
   location = /railway-pair { limit_req zone=pair burst=5 nodelay; proxy_pass http://127.0.0.1:3774; proxy_set_header Host \$http_host; }
   location / {
     proxy_pass http://127.0.0.1:3773;
@@ -35,6 +36,9 @@ server {
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection \$http_connection;
     proxy_set_header Host \$http_host;
+    proxy_set_header Accept-Encoding "";
+    sub_filter '</head>' '<script src="/railway-pair-hint.js" defer></script></head>';
+    sub_filter_once on;
     proxy_buffering off;
     proxy_read_timeout 1d;
     proxy_send_timeout 1d;
