@@ -63,6 +63,12 @@ Notes and limits:
 - Anything installed outside `/home/t3` is lost on redeploy. Put tools in `~/.local/bin`.
 - There is no Docker daemon in the box. T3's in-app browser tabs need `sudo t3 browser setup` first; this template does not test them.
 
+## Getting a pairing code
+
+Any device or tool that asks for a pairing code: open the server's address in a browser that is already paired, go to Settings > Sharing & access, and click **+ Create link**. A brand-new browser gets its first code from `/railway-pair` (password in the service's `T3_SETUP_PASSWORD` variable; 10 tries a minute).
+
+The T3 version updates itself: `.github/workflows/bump-t3.yml` checks hourly for a new stable release and Railway rebuilds on the push.
+
 ## Why Deploy T3 Code on Railway?
 
 Railway is a singular platform to deploy your infrastructure stack. Railway will host your infrastructure so you don't have to deal with configuration, while allowing you to vertically and horizontally scale it.
