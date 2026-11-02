@@ -54,6 +54,12 @@ Paired devices stay paired across redeploys. The phone and desktop apps must be 
 
 **Upgrading a deploy from T3 0.0.x:** redeploy the service. On first boot T3 0.1 copies your threads into its new database (one-way; the old copy stays on the volume) and OpenCode 2 converts OpenCode's database. Devices paired under 0.0.x keep their session but with the old, narrower permissions, so open `/railway-pair` and pair them again.
 
+### Tailscale (optional)
+
+Set `TAILSCALE_AUTHKEY` and the box joins your tailnet. Use an OAuth client secret (its tag must exist in your policy) or a reusable pre-approved auth key. You can also set `TAILSCALE_HOSTNAME` (default `t3-railway`) and `TAILSCALE_TAGS` (default `tag:claude-cloud`, used only with an OAuth secret).
+
+The box then answers at `https://<hostname>.<tailnet>.ts.net`, with the same pages as the public domain. HTTPS certificates must be on for the tailnet. The key is removed from the environment before any agent starts. Agents on the box can reach tailnet hosts with `ssh`. Once your phone connects over the tailnet, you can delete the Railway public domain to take the box off the internet. If the variable is unset, nothing changes.
+
 Notes and limits:
 
 - **RAM:** about 300 MB idle on Railway (the T3 server, the pairing page and nginx). OpenCode's `opencode serve` adds about 375 MB once you use it, and every running agent session adds roughly 0.3 to 1 GB (a single OpenCode task peaked at about 1.7 GB in our test). Builds and tests need more. Use the Hobby plan or higher; the Trial plan's 512 MB will not run an agent.

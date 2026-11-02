@@ -43,6 +43,47 @@ server {
 CFG
 nginx
 
+# Optional tailnet. The container has no TUN device, so tailscaled runs in userspace mode.
+# State lives on the volume, so the node keeps its name and identity across redeploys.
+if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
+  TS="$H/.tailscale"
+  install -d -m 700 -o root -g root "$TS" || true
+  mkdir -p /run/tailscale
+  ts_state() { tailscale status --json 2>/dev/null | jq -r '.BackendState // empty'; }
+  # env -u keeps the key out of the daemon's environment.
+  env -u TAILSCALE_AUTHKEY tailscaled --tun=userspace-networking --state="$TS/tailscaled.state" \
+    --socket=/run/tailscale/tailscaled.sock >> "$TS/tailscaled.log" 2>&1 &
+  # A saved node passes through Starting before Running; waiting avoids a needless re-login.
+  for _ in $(seq 20); do
+    case "$(ts_state)" in Running|NeedsLogin) break ;; esac
+    sleep 0.5
+  done
+  if [ "$(ts_state)" != Running ]; then
+    ts_key="$TAILSCALE_AUTHKEY"; ts_tags=()
+    # An OAuth client secret needs the tag its key was issued for; a plain auth key joins as its owner.
+    case "$ts_key" in tskey-client-*)
+      ts_key="$ts_key?ephemeral=false&preauthorized=true"
+      ts_tags=(--advertise-tags="${TAILSCALE_TAGS:-tag:claude-cloud}") ;;
+    esac
+    printf '%s' "$ts_key" | timeout 2m tailscale up --auth-key=file:/dev/stdin --operator=t3 \
+      --hostname="${TAILSCALE_HOSTNAME:-t3-railway}" "${ts_tags[@]}" >/dev/null || echo "tailscale: login failed"
+    unset ts_key ts_tags
+  fi
+  if [ "$(ts_state)" = Running ]; then
+    timeout 30 tailscale serve --bg --https=443 "http://127.0.0.1:${PORT}" >/dev/null \
+      || echo "tailscale: serve failed (are HTTPS certificates on for the tailnet?)"
+    cat > /etc/ssh/ssh_config.d/tailnet.conf <<'SSH'
+Host 100.* *.ts.net
+  ProxyCommand tailscale nc %h %p
+SSH
+    echo "tailscale: $(tailscale status --json | jq -r '.Self.DNSName // empty | sub("\\.$"; "")')"
+  else
+    echo "tailscale: not connected, see $TS/tailscaled.log"
+  fi
+fi
+# Before the pairing page and T3 start, so nothing agents run can inherit the key.
+unset TAILSCALE_AUTHKEY
+
 as_t3 node /opt/railway-pair.mjs &
 unset T3_SETUP_PASSWORD
 

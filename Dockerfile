@@ -19,7 +19,7 @@ ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 PORT=8080 \
     NPM_CONFIG_PREFIX=/opt/npm PATH=/opt/npm/bin:$PATH \
     OPENCODE_DISABLE_AUTOUPDATE=1 DISABLE_AUTOUPDATER=1
 
-# Toolbox the agents work with: git, gh, Node 22, Python 3 + uv, build tools, ripgrep.
+# Toolbox the agents work with: git, gh, tailscale, Node 22, Python 3 + uv, build tools, ripgrep.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl wget gnupg git openssh-client nginx-light sudo tmux \
       vim nano less htop ripgrep fd-find jq unzip zip tree procps locales qrencode tini \
@@ -29,11 +29,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
   && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
        > /etc/apt/sources.list.d/github-cli.list \
-  && apt-get update && apt-get install -y --no-install-recommends nodejs gh \
+  && curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg \
+       -o /usr/share/keyrings/tailscale-archive-keyring.gpg \
+  && curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list \
+       -o /etc/apt/sources.list.d/tailscale.list \
+  && apt-get update && apt-get install -y --no-install-recommends nodejs gh tailscale \
   && curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh \
   && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}" \
        "@opencode/cli@${OPENCODE_VERSION}" \
-  && npm cache clean --force && claude --version && codex --version && opencode --version \
+  && npm cache clean --force && claude --version && codex --version && opencode --version && tailscale version \
   && curl -fsSL -o /tmp/t3.tgz "https://github.com/pingdotgg/t3code/releases/download/v${T3_VERSION}/t3-${T3_VERSION}-linux-x64.tar.gz" \
   && echo "${T3_SHA256}  /tmp/t3.tgz" | sha256sum -c - \
   && mkdir -p /opt/t3 && tar xzf /tmp/t3.tgz -C /opt/t3 --strip-components=1 && rm /tmp/t3.tgz \
