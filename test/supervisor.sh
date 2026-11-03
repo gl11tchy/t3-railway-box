@@ -72,7 +72,9 @@ expect stop "factory secrets: 1 moved to"
 expect stop "t3 serving; secrets in env: 0"
 expect stop "tick working; secrets in env: 0"
 if ! grep -q '^FACTORY_SECRET_DEMO=hunter2$' "$T/run/secrets.env"; then echo "FAIL: secrets file lacks the secret"; failed=1; fi
-mode=$(stat -f '%Lp' "$T/run/secrets.env" 2>/dev/null || stat -c '%a' "$T/run/secrets.env")
+# GNU stat (Linux) takes -c; BSD stat (macOS) takes -f. Try GNU first: BSD's `-f` is also a GNU
+# flag (file-system stat), which succeeds with the wrong output.
+mode=$(stat -c '%a' "$T/run/secrets.env" 2>/dev/null || stat -f '%Lp' "$T/run/secrets.env")
 if [ "$mode" != 600 ]; then echo "FAIL: secrets file mode is $mode, not 600"; failed=1; fi
 if grep -q hunter2 "$T/stop.out"; then echo "FAIL: the secret was printed"; failed=1; fi
 expect stop "stop requested; a running tick finishes first"
