@@ -70,10 +70,12 @@ install_if_needed() {
 
 say "started; a tick every $INTERVAL seconds; log $LOG"
 while :; do
-  # A stop that landed during the last sleep of the wait below must not start one more tick.
-  [ "$stopping" = 1 ] && { say "stopped"; exit 0; }
   if clone_if_missing; then
     install_if_needed
+    # A stop that landed since the last check (in the last sleep of the wait below, or during
+    # the clone or npm ci above, where bash runs the trap only once they end) must not start
+    # one more tick.
+    [ "$stopping" = 1 ] && { say "stopped"; exit 0; }
     say "tick starting"
     (cd "$DIR" && exec node scripts/factory-tick.mjs) 2>&1 | tee -a "$LOG" &
     wait_for $!

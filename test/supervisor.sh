@@ -4,6 +4,7 @@
 #   2. a T3 crash stops the loop (its tick finishes) and exits with T3's status
 #   3. with FACTORY_TICK_ENABLED unset, T3 runs alone and a stop exits 0
 #   4. a FACTORY_SECRET_* variable reaches the secrets file and not T3's or the tick's environment
+#   5. a stop that lands in the last sleep of the loop's wait starts no further tick
 # Case 1 exists because the first draft started the loop through a shell function, which
 # left a subshell in between, and the stop signal never reached the loop.
 set -uo pipefail
@@ -105,4 +106,16 @@ expect off "t3: stopped"
 expect off "^exit 0"
 if grep -q "factory-loop" "$T/off.out"; then echo "FAIL: off case started the loop"; failed=1; fi
 
-if [ "$failed" = 0 ]; then echo "supervisor: all four cases pass"; else echo "supervisor: FAILED"; exit 1; fi
+# Case 5 pins a failure seen on the box: with a 5-second interval the wait is one sleep, so a
+# stop at 6 seconds (the 3-second tick is over) lands in its last sleep. Before the fix the loop
+# started a second tick on the way out.
+echo "case 5: stop in the last sleep of the wait"
+rm -rf "$T/home/.factory"
+run_case lastsleep 6 FACTORY_TICK_ENABLED=1 FACTORY_TICK_INTERVAL=5
+order lastsleep "tick ended" "stop requested"
+ticks=$(grep -c 'tick starting' "$T/lastsleep.out")
+if [ "$ticks" != 1 ]; then echo "FAIL: lastsleep started $ticks ticks, not 1"; failed=1; fi
+expect lastsleep " stopped$"
+expect lastsleep "^exit 0"
+
+if [ "$failed" = 0 ]; then echo "supervisor: all five cases pass"; else echo "supervisor: FAILED"; exit 1; fi
