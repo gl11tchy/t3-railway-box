@@ -6,12 +6,21 @@ FROM ubuntu:24.04
 ARG T3_VERSION=0.1.6
 ARG T3_SHA256=7cf31da90dee41f524dd5b679ebb6d404637ca5d9dc6fd8bc019511d57bb77e6
 # upgrade: npm @anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.309
+ARG CLAUDE_CODE_VERSION=2.1.317
 # upgrade: npm @openai/codex
 ARG CODEX_VERSION=0.163.0
 # OpenCode 2 (@opencode/cli); T3 gives OpenCode 1.x only limited support.
 # upgrade: npm @opencode/cli
 ARG OPENCODE_VERSION=2.1.3
+# The software factory's release stage (gl11tchy/software-factory, docs/release.md) deploys
+# products with the Vercel and Supabase CLIs and backs a database up with pg_dump.
+# Vercel is pinned to the version the factory's release script was proven with on the Mac.
+# upgrade: npm vercel
+ARG VERCEL_VERSION=56.4.1
+# Supabase: version + sha256 of supabase_<v>_linux_amd64.tar.gz from the release's checksums.txt.
+# upgrade: github supabase/cli
+ARG SUPABASE_VERSION=3.0.0
+ARG SUPABASE_SHA256=eeb61edcd59a4735fcb5e58596574f25d03d420efca779f43ddb307e1cc5c754
 
 # Global npm installs go to /opt/npm, owned by the t3 user, so T3's "Update" button for
 # Claude/Codex works without root (until the next redeploy restores the pinned versions).
@@ -29,11 +38,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
   && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
        > /etc/apt/sources.list.d/github-cli.list \
-  && apt-get update && apt-get install -y --no-install-recommends nodejs gh \
+  # pg_dump 17 from PostgreSQL's own repository: Supabase projects run Postgres 17, and
+  # Ubuntu 24.04's pg_dump (16) refuses to dump a newer server.
+  && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/keyrings/pgdg.asc \
+  && echo "deb [signed-by=/usr/share/keyrings/pgdg.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+       > /etc/apt/sources.list.d/pgdg.list \
+  && apt-get update && apt-get install -y --no-install-recommends nodejs gh postgresql-client-17 \
   && curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh \
   && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}" \
-       "@opencode/cli@${OPENCODE_VERSION}" \
-  && npm cache clean --force && claude --version && codex --version && opencode --version \
+       "@opencode/cli@${OPENCODE_VERSION}" "vercel@${VERCEL_VERSION}" \
+  && npm cache clean --force && claude --version && codex --version && opencode --version && vercel --version \
+  && curl -fsSL -o /tmp/supabase.tgz "https://github.com/supabase/cli/releases/download/v${SUPABASE_VERSION}/supabase_${SUPABASE_VERSION}_linux_amd64.tar.gz" \
+  && echo "${SUPABASE_SHA256}  /tmp/supabase.tgz" | sha256sum -c - \
+  && tar xzf /tmp/supabase.tgz -C /usr/local/bin supabase && rm /tmp/supabase.tgz && supabase --version && pg_dump --version \
   && curl -fsSL -o /tmp/t3.tgz "https://github.com/pingdotgg/t3code/releases/download/v${T3_VERSION}/t3-${T3_VERSION}-linux-x64.tar.gz" \
   && echo "${T3_SHA256}  /tmp/t3.tgz" | sha256sum -c - \
   && mkdir -p /opt/t3 && tar xzf /tmp/t3.tgz -C /opt/t3 --strip-components=1 && rm /tmp/t3.tgz \
@@ -53,6 +70,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY railway-pair.mjs /opt/railway-pair.mjs
 COPY entrypoint.sh /entrypoint.sh
+COPY factory-loop.sh /opt/factory-loop.sh
 COPY drop-file-cache /usr/local/bin/drop-file-cache
 
 EXPOSE 8080
