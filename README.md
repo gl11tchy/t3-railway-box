@@ -11,7 +11,7 @@ One service, one volume. The pinned `t3` server (v0.1.5, checksum-verified at bu
 - **Locked by default, with T3's own auth.** Every API call, WebSocket and terminal needs a T3 session, and a device only gets one by pairing with a one-time link. Nothing is open to whoever finds the URL. The mobile apps, the desktop app and app.t3.codes connect through this same lock. A basic-auth gateway in front would have blocked them.
 - **A pairing page instead of digging through logs.** Open `https://<your-domain>/railway-pair` and sign in with the generated `T3_SETUP_PASSWORD`. The page mints a one-time pairing link that lasts 15 minutes, with a QR code for the phone app. The one-time admin token `t3 serve` prints at boot is redacted from the logs.
 - **T3 Code 0.1 (Orchestrator V2), the first stable release.** Agents can hand work to child agents on any provider (`delegate_task`: Claude plans, Codex implements), fork threads, and queue messages on the server. Interrupted threads continue after a redeploy.
-- **Agents preinstalled and pinned:** Claude Code 2.1.309, Codex 0.163.0 and OpenCode 2.1.3, next to `git`, `gh`, Node 22, Python 3 + `uv`, `build-essential`, `ripgrep`, `jq` and `tmux`.
+- **Agents preinstalled and pinned:** Claude Code 2.1.317, Codex 0.163.0 and OpenCode 2.1.3, next to `git`, `gh`, Node 22, Python 3 + `uv`, `build-essential`, `ripgrep`, `jq` and `tmux`. For releasing products from the box: the Vercel CLI, the Supabase CLI and `pg_dump` 17.
 - **A normal user with sudo.** Agents run as user `t3`, so Claude Code's full-access mode works (it refuses that mode as root). Passwordless `sudo` is there for `apt-get`.
 - **Everything persists.** `/home/t3` is the volume: agent logins (`~/.claude`, `~/.codex`), T3 state and threads (`~/.t3`), repos in `~/workspace`, dotfiles.
 
@@ -62,6 +62,14 @@ Notes and limits:
 - **This server runs arbitrary commands.** Agents and the T3 terminal have a shell with passwordless sudo on this box. The T3 pairing lock and `T3_SETUP_PASSWORD` are all that protect it: keep the password secret and treat pairing links like passwords.
 - Anything installed outside `/home/t3` is lost on redeploy. Put tools in `~/.local/bin`.
 - There is no Docker daemon in the box. T3's in-app browser tabs need `sudo t3 browser setup` first; this template does not test them.
+
+## Running the software factory on the box
+
+The box can also run [gl11tchy/software-factory](https://github.com/gl11tchy/software-factory)'s orchestrator, a script that checks a work queue every 30 minutes and starts coding agents with the Claude login on the volume. It is off unless the service variable `FACTORY_TICK_ENABLED` is `1`. The boot log says which: `== factory loop: on (every 30 min)` or `== factory loop: off (FACTORY_TICK_ENABLED is not 1)`.
+
+When it is on, `/opt/factory-loop.sh` runs as `t3` next to the T3 server. It clones the repository into `~/factory` if it is missing, runs `node scripts/factory-tick.mjs` every 30 minutes (`FACTORY_TICK_INTERVAL` in seconds overrides that for tests) and writes everything to `~/.factory/logs/tick.log`. The tick updates its own checkout, so the loop never pulls. On a stop or redeploy the loop lets the tick it is in finish first, while the T3 server keeps serving, so set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=3600` or Railway kills it at once. Only one machine may run the orchestrator: switch it off here before switching it on anywhere else. Variables, secrets and the runbook are in that repository's [`docs/railway.md`](https://github.com/gl11tchy/software-factory/blob/main/docs/railway.md).
+
+The factory's secrets are sealed service variables named `FACTORY_SECRET_*`. At boot the entrypoint moves them into `/run/factory/secrets.env` (readable by `t3` only, outside the volume in the container's own file system, which a redeploy discards, rewritten every boot; the boot line names the file system type) and out of the environment, so neither the T3 server, its terminal and your agents, nor the factory's loop and agents have them in their environment. The factory's scripts read that file when they need a value. The boot log prints how many were moved, never a value.
 
 ## Why Deploy T3 Code on Railway?
 

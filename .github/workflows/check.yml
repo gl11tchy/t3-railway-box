@@ -1,0 +1,19 @@
+name: Check
+# The scripts are linted and the supervisor harness runs, then the image is built the way
+# Railway builds it, so a broken Dockerfile fails the pull request and not the deploy.
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -s bash entrypoint.sh factory-loop.sh test/supervisor.sh
+      - run: bash test/supervisor.sh
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --progress=plain .
