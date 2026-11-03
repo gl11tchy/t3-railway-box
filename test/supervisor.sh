@@ -32,11 +32,21 @@ echo 'console.log("tick working; secrets in env: " + Object.keys(process.env).fi
   > "$T/home/factory/scripts/factory-tick.mjs"
 git -C "$T/home/factory" init -q
 
-# The supervising tail of the entrypoint, from the secrets marker, with the image paths
-# pointed at this checkout.
+# The secrets block must run before any process starts, or that process keeps every secret in
+# its environment for life (the pairing page runs as t3 and answers the internet).
+secrets_at=$(grep -n '^# factory-secrets: start' entrypoint.sh | cut -d: -f1)
+first_process=$(grep -nE '^nginx$|railway-pair|drop-file-cache|codex login|gh auth' entrypoint.sh | head -1 | cut -d: -f1)
+if [ -z "$secrets_at" ] || [ -z "$first_process" ] || [ "$secrets_at" -ge "$first_process" ]; then
+  echo "FAIL: the factory-secrets block (line ${secrets_at:-?}) must come before the first process (line ${first_process:-?})"
+  exit 1
+fi
+
+# The secrets block and the supervising tail of the entrypoint, with the image paths pointed
+# at this checkout.
 {
   echo "H=$T/home; as_t3() { env HOME=\"\$H\" \"\$@\"; }"
-  sed -n '/^# factory-secrets: start/,$p' entrypoint.sh | sed "s#/opt/factory-loop.sh#$ROOT/factory-loop.sh#"
+  sed -n '/^# factory-secrets: start/,/^# factory-secrets: end/p' entrypoint.sh
+  sed -n '/^# supervisor: start/,$p' entrypoint.sh | sed "s#/opt/factory-loop.sh#$ROOT/factory-loop.sh#"
 } > "$T/tail.sh"
 
 run_case() { # name, seconds before SIGTERM (0 = never), extra env...

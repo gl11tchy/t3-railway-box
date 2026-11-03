@@ -8,6 +8,37 @@ H=/home/t3
 mkdir -p "$H/workspace"
 [ "$(stat -c %u "$H")" = 1000 ] && [ "$(stat -c %u "$H/workspace")" = 1000 ] || chown -R t3:t3 "$H"
 
+# factory-secrets: start (test/supervisor.sh runs this block, then the supervisor below)
+# The software factory's secrets arrive as sealed service variables FACTORY_SECRET_*. They go to
+# a file only t3 can read, in memory and not on the volume, and out of the environment, before
+# any process starts (nginx, the pairing page and the cache loop included; test/supervisor.sh
+# pins that order). So neither T3 (its terminal and the agents RG runs in it) nor the factory's
+# loop, tick and agents carry a secret in their environment, and /proc/<pid>/environ of none of
+# them shows one. The factory's scripts read the file on demand (gl11tchy/software-factory,
+# docs/railway.md). The box has one user with sudo, so this keeps secrets out of sight and out
+# of accidental reach, as the Mac's Keychain does, not out of the reach of a process that looks.
+SECRETS_DIR="${FACTORY_SECRETS_DIR:-/run/factory}"
+SECRETS_FILE="$SECRETS_DIR/secrets.env"
+mkdir -p "$SECRETS_DIR"
+: > "$SECRETS_FILE"
+if [ "$(id -u)" = 0 ]; then chown t3:t3 "$SECRETS_DIR" "$SECRETS_FILE"; fi
+chmod 700 "$SECRETS_DIR" && chmod 600 "$SECRETS_FILE"
+moved=0
+while IFS= read -r name; do
+  [ -n "$name" ] || continue
+  # One NAME=value line per secret, so a value with a newline cannot be stored. It is dropped
+  # with a note (the name only), never written broken.
+  case "${!name}" in
+    *$'\n'*) echo "== factory secrets: $name holds a newline and was not written"; unset "$name"; continue ;;
+  esac
+  printf '%s=%s\n' "$name" "${!name}" >> "$SECRETS_FILE"
+  unset "$name"
+  moved=$((moved + 1))
+done < <(compgen -e | grep '^FACTORY_SECRET_' || true)
+echo "== factory secrets: $moved moved to $SECRETS_FILE"
+export FACTORY_SECRETS_FILE="$SECRETS_FILE"
+# factory-secrets: end
+
 as_t3() { setpriv --reuid=1000 --regid=1000 --init-groups env HOME="$H" USER=t3 LOGNAME=t3 SHELL=/bin/bash "$@"; }
 
 # Optional keys, applied once so a login done in the app is never overwritten.
@@ -50,30 +81,7 @@ unset T3_SETUP_PASSWORD
 # never frees it without pressure (one npm install = hundreds of MB). Drop it every 15 min.
 ( while sleep 900; do nice -n 19 drop-file-cache "$H" /tmp || true; done ) &
 
-# factory-secrets: start (test/supervisor.sh runs the script from this line)
-# The software factory's secrets arrive as sealed service variables FACTORY_SECRET_*. They go to
-# a file only t3 can read, in memory and not on the volume, and out of the environment, before
-# anything starts. So neither T3 (its terminal and the agents RG runs in it) nor the factory's
-# loop, tick and agents carry a secret in their environment, and /proc/<pid>/environ of none of
-# them shows one. The factory's scripts read the file on demand (gl11tchy/software-factory,
-# docs/railway.md). The box has one user with sudo, so this keeps secrets out of sight and out
-# of accidental reach, as the Mac's Keychain does, not out of the reach of a process that looks.
-SECRETS_DIR="${FACTORY_SECRETS_DIR:-/run/factory}"
-SECRETS_FILE="$SECRETS_DIR/secrets.env"
-mkdir -p "$SECRETS_DIR"
-: > "$SECRETS_FILE"
-if [ "$(id -u)" = 0 ]; then chown t3:t3 "$SECRETS_DIR" "$SECRETS_FILE"; fi
-chmod 700 "$SECRETS_DIR" && chmod 600 "$SECRETS_FILE"
-moved=0
-while IFS= read -r name; do
-  [ -n "$name" ] || continue
-  printf '%s=%s\n' "$name" "${!name}" >> "$SECRETS_FILE"
-  unset "$name"
-  moved=$((moved + 1))
-done < <(compgen -e | grep '^FACTORY_SECRET_' || true)
-echo "== factory secrets: $moved moved to $SECRETS_FILE"
-export FACTORY_SECRETS_FILE="$SECRETS_FILE"
-
+# supervisor: start (test/supervisor.sh runs the script from this line, after the secrets block)
 echo "== T3 Code $(t3 --version 2>/dev/null) on :${PORT}. Pair a device at https://<your-domain>/railway-pair"
 cd "$H/workspace"
 
