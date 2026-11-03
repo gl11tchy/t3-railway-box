@@ -10,7 +10,8 @@ mkdir -p "$H/workspace"
 
 # factory-secrets: start (test/supervisor.sh runs this block, then the supervisor below)
 # The software factory's secrets arrive as sealed service variables FACTORY_SECRET_*. They go to
-# a file only t3 can read, in memory and not on the volume, and out of the environment, before
+# a file only t3 can read, outside the volume in the container's own file system (which a
+# redeploy discards; the boot line names the file system type), and out of the environment, before
 # any process starts (nginx, the pairing page and the cache loop included; test/supervisor.sh
 # pins that order). So neither T3 (its terminal and the agents RG runs in it) nor the factory's
 # loop, tick and agents carry a secret in their environment, and /proc/<pid>/environ of none of
@@ -35,7 +36,8 @@ while IFS= read -r name; do
   unset "$name"
   moved=$((moved + 1))
 done < <(compgen -e | grep '^FACTORY_SECRET_' || true)
-echo "== factory secrets: $moved moved to $SECRETS_FILE"
+fstype=$(stat -f -c %T "$SECRETS_DIR" 2>/dev/null) || fstype=unknown
+echo "== factory secrets: $moved moved to $SECRETS_FILE ($fstype)"
 export FACTORY_SECRETS_FILE="$SECRETS_FILE"
 # factory-secrets: end
 
@@ -100,7 +102,9 @@ wait_for() {
   return "$status"
 }
 loop_running() { [ -n "$loop_pid" ] && kill -0 "$loop_pid" 2>/dev/null; }
-stop_t3() { [ "$t3_told" = 1 ] && return; t3_told=1; [ -n "$t3_pid" ] && kill -TERM "$t3_pid" 2>/dev/null; }
+# T3 counts as told only once there is a process to tell: a stop that lands before t3_pid is
+# set must not mark it told, or the polling loop below would never stop T3.
+stop_t3() { [ -n "$t3_pid" ] && [ "$t3_told" = 0 ] || return 0; t3_told=1; kill -TERM "$t3_pid" 2>/dev/null; }
 # A stop (a redeploy, a variable change): the loop goes first and finishes the tick it is
 # in, T3 keeps serving meanwhile, and T3 is stopped once the loop is gone. Railway's
 # RAILWAY_DEPLOYMENT_DRAINING_SECONDS bounds the whole wait.
