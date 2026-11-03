@@ -70,6 +70,8 @@ install_if_needed() {
 
 say "started; a tick every $INTERVAL seconds; log $LOG"
 while :; do
+  # A stop that landed during the last sleep of the wait below must not start one more tick.
+  [ "$stopping" = 1 ] && { say "stopped"; exit 0; }
   if clone_if_missing; then
     install_if_needed
     say "tick starting"
