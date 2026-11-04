@@ -71,7 +71,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY railway-pair.mjs /opt/railway-pair.mjs
 COPY entrypoint.sh /entrypoint.sh
 COPY factory-loop.sh /opt/factory-loop.sh
+COPY factory-waker.sh /opt/factory-waker.sh
 COPY drop-file-cache /usr/local/bin/drop-file-cache
+
+# `fo` talks to the Factory orchestrator from any shell on the box, for every user. The
+# checkout it runs is the one the waker clones.
+RUN printf '%s\n' '#!/bin/sh' 'exec node /home/t3/workspace/software-factory/orchestrator/bin/fo.mjs "$@"' \
+      > /usr/local/bin/fo \
+  && chmod 755 /usr/local/bin/fo
 
 EXPOSE 8080
 ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]

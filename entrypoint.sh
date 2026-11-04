@@ -87,10 +87,10 @@ unset T3_SETUP_PASSWORD
 echo "== T3 Code $(t3 --version 2>/dev/null) on :${PORT}. Pair a device at https://<your-domain>/railway-pair"
 cd "$H/workspace"
 
-# From here on, this script supervises two children and must outlive a failing one long
-# enough to stop the other, so errors no longer end it.
+# From here on, this script supervises three children and must outlive a failing one long
+# enough to stop the others, so errors no longer end it.
 set +e
-t3_pid="" loop_pid="" stopping=0 t3_told=0
+t3_pid="" loop_pid="" waker_pid="" stopping=0 t3_told=0
 # `wait` returns early when a trapped signal arrives; keep waiting until the child is gone.
 wait_for() {
   local pid=$1 status=0
@@ -102,15 +102,18 @@ wait_for() {
   return "$status"
 }
 loop_running() { [ -n "$loop_pid" ] && kill -0 "$loop_pid" 2>/dev/null; }
+waker_running() { [ -n "$waker_pid" ] && kill -0 "$waker_pid" 2>/dev/null; }
 # T3 counts as told only once there is a process to tell: a stop that lands before t3_pid is
 # set must not mark it told, or the polling loop below would never stop T3.
 stop_t3() { [ -n "$t3_pid" ] && [ "$t3_told" = 0 ] || return 0; t3_told=1; kill -TERM "$t3_pid" 2>/dev/null; }
 # A stop (a redeploy, a variable change): the loop goes first and finishes the tick it is
 # in, T3 keeps serving meanwhile, and T3 is stopped once the loop is gone. Railway's
-# RAILWAY_DEPLOYMENT_DRAINING_SECONDS bounds the whole wait.
+# RAILWAY_DEPLOYMENT_DRAINING_SECONDS bounds the whole wait. The waker holds no work, so it
+# is stopped at once and never delays T3's stop.
 # shellcheck disable=SC2329  # invoked by the trap below
 on_term() {
   stopping=1
+  if waker_running; then kill -TERM "$waker_pid" 2>/dev/null; fi
   if loop_running; then kill -TERM "$loop_pid" 2>/dev/null; else stop_t3; fi
 }
 trap on_term TERM INT
@@ -131,6 +134,22 @@ else
   echo "== factory loop: off (FACTORY_TICK_ENABLED is not 1)"
 fi
 
+# The software factory's waker (gl11tchy/software-factory, docs/factory-v2.md) wakes the Factory
+# orchestrator chat when Linear events arrive, or every 15 minutes while work is open. It runs as
+# t3, only when the service variable FACTORY_WAKER_ENABLED is 1. The script clones the repository
+# into ~/workspace/software-factory if it is missing, and starts the waker again 10 seconds after
+# it exits.
+if [ "${FACTORY_WAKER_ENABLED:-0}" = 1 ]; then
+  echo "== factory waker: on"
+  # A plain command, not the as_t3 function, for the reason given at the factory loop above.
+  setpriv --reuid=1000 --regid=1000 --init-groups env HOME="$H" USER=t3 LOGNAME=t3 SHELL=/bin/bash \
+    FACTORY_HOME="$H/.factory" FACTORY_SECRETS_FILE="$FACTORY_SECRETS_FILE" \
+    PATH="$PATH:/opt/npm/bin:/usr/local/bin" bash /opt/factory-waker.sh &
+  waker_pid=$!
+else
+  echo "== factory waker: off (FACTORY_WAKER_ENABLED is not 1)"
+fi
+
 # 0.0.0.0 = T3's "remote-reachable" policy (it is, via the domain); nginx still fronts it.
 # `t3 serve` prints a one-time admin pairing token + QR at boot; keep it out of the logs.
 setpriv --reuid=1000 --regid=1000 --init-groups env HOME="$H" USER=t3 LOGNAME=t3 SHELL=/bin/bash \
@@ -146,7 +165,11 @@ wait "$t3_pid"
 t3_status=$?
 
 # T3 is gone. On a stop that is the planned order. Otherwise T3 crashed and the container
-# restarts: stop the loop too, and give a tick in flight the time to finish.
+# restarts: stop the waker at once, stop the loop too, and give a tick in flight the time to finish.
+if waker_running; then
+  kill -TERM "$waker_pid" 2>/dev/null
+  wait_for "$waker_pid"
+fi
 if loop_running; then
   kill -TERM "$loop_pid" 2>/dev/null
   wait_for "$loop_pid"
