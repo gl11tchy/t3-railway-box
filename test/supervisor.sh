@@ -9,6 +9,7 @@
 #      before the tick finishes, with the secrets out of its environment
 #   7. a waker that exits is started again, and a stop ends the supervisor with exit 0
 #   8. a missing checkout is cloned before the waker starts
+#   9. a waker that fails gets the newest main before it starts again
 # Case 1 exists because the first draft started the loop through a shell function, which
 # left a subshell in between, and the stop signal never reached the loop.
 set -uo pipefail
@@ -171,4 +172,22 @@ run_case wakerclone 3 FACTORY_WAKER_ENABLED=1
 order wakerclone "gh: cloning gl11tchy/software-factory" "waker running"
 expect wakerclone "^exit 0"
 
-if [ "$failed" = 0 ]; then echo "supervisor: all eight cases pass"; else echo "supervisor: FAILED"; exit 1; fi
+# Case 9: a merge to main that breaks the waker at start, then the fix merged after it. The
+# waker cannot pull the fix itself, so the supervisor must, or the factory never wakes again.
+echo "case 9: a failing waker gets the newest main"
+G="git -c user.name=test -c user.email=test@example.invalid"
+rm -rf "$T/home/.factory" "$T/home/workspace/software-factory" "$T/upstream"
+mkdir -p "$T/upstream/orchestrator"
+$G init -q -b main "$T/upstream"
+echo 'console.log("waker v1 broken"); process.exit(3)' > "$T/upstream/orchestrator/waker.mjs"
+$G -C "$T/upstream" add -A && $G -C "$T/upstream" commit -qm v1
+git clone -q "$T/upstream" "$T/home/workspace/software-factory"
+echo 'process.on("SIGTERM", () => process.exit(0)); console.log("waker v2 running"); setInterval(() => {}, 1000)' \
+  > "$T/upstream/orchestrator/waker.mjs"
+$G -C "$T/upstream" commit -qam v2
+run_case wakerupdate 4 FACTORY_WAKER_ENABLED=1
+order wakerupdate "waker ended (exit 3)" "updating the checkout"
+order wakerupdate "updating the checkout" "waker v2 running"
+expect wakerupdate "^exit 0"
+
+if [ "$failed" = 0 ]; then echo "supervisor: all nine cases pass"; else echo "supervisor: FAILED"; exit 1; fi

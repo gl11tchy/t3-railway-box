@@ -45,10 +45,25 @@ clone_if_missing() {
   [ -d "$DIR/.git" ]
 }
 
+# The waker pulls main itself once an hour while it runs. A waker that cannot start never gets
+# there, so the supervisor fast-forwards the checkout before each restart after a failure, with
+# the waker's own guard: only on main, only with no local changes.
+update_checkout() {
+  local branch
+  branch=$(git -C "$DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)
+  if [ "$branch" != main ]; then say "not updating: the checkout is on ${branch:-no branch}, not main"; return 0; fi
+  if [ -n "$(git -C "$DIR" status --porcelain 2>/dev/null)" ]; then say "not updating: the checkout has local changes"; return 0; fi
+  say "updating the checkout"
+  git -C "$DIR" pull --ff-only 2>&1 | tee -a "$LOG"
+}
+
 say "started; log $LOG"
 while :; do
   [ "$stopping" = 1 ] && { say "stopped"; exit 0; }
-  if clone_if_missing; then
+  if clone_if_missing && [ ! -f "$DIR/orchestrator/waker.mjs" ]; then
+    say "no orchestrator/waker.mjs in the checkout"
+    update_checkout
+  elif [ -d "$DIR/.git" ]; then
     # A stop that landed during the clone (where bash runs the trap only once it ends) must not
     # start the waker.
     [ "$stopping" = 1 ] && { say "stopped"; exit 0; }
@@ -63,6 +78,7 @@ while :; do
     status=$?
     waker_pid=""
     say "waker ended (exit $status)"
+    [ "$status" != 0 ] && [ "$stopping" = 0 ] && update_checkout
   else
     say "no checkout yet; trying again in $DELAY seconds"
   fi
