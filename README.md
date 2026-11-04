@@ -71,6 +71,14 @@ When it is on, `/opt/factory-loop.sh` runs as `t3` next to the T3 server. It clo
 
 The factory's secrets are sealed service variables named `FACTORY_SECRET_*`. At boot the entrypoint moves them into `/run/factory/secrets.env` (readable by `t3` only, outside the volume in the container's own file system, which a redeploy discards, rewritten every boot; the boot line names the file system type) and out of the environment, so neither the T3 server, its terminal and your agents, nor the factory's loop and agents have them in their environment. The factory's scripts read that file when they need a value. The boot log prints how many were moved, never a value.
 
+## The factory waker
+
+The factory waker wakes the Factory orchestrator chat when Linear events arrive, or every 15 minutes while work is open (the design is in [gl11tchy/software-factory](https://github.com/gl11tchy/software-factory), `docs/factory-v2.md`). It is off unless the service variable `FACTORY_WAKER_ENABLED` is `1`. The boot log says which: `== factory waker: on` or `== factory waker: off (FACTORY_WAKER_ENABLED is not 1)`.
+
+When it is on, `/opt/factory-waker.sh` runs as `t3` next to the T3 server. It clones the repository into `~/workspace/software-factory` if it is missing, runs `node orchestrator/waker.mjs` from there, and starts it again 10 seconds after it exits. Before it restarts a waker that failed, or when the checkout has no `orchestrator/waker.mjs`, it fast-forwards the checkout, but only when it is on `main` with no local changes. So a fix merged after a broken change still reaches the box. The waker's output goes to the Railway log and to `~/.factory/logs/waker.log`. The script's own lines start with `[factory-waker]` (`waker starting`, `waker ended (exit N)`, `stopped`). The waker holds no work, so a stop or redeploy ends it at once and never delays the T3 server's stop.
+
+The image also has a `fo` command for every user. It runs `orchestrator/bin/fo.mjs` from the same checkout, so it works once the waker has cloned the repository.
+
 ## Why Deploy T3 Code on Railway?
 
 Railway is a singular platform to deploy your infrastructure stack. Railway will host your infrastructure so you don't have to deal with configuration, while allowing you to vertically and horizontally scale it.

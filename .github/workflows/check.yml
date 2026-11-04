@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck -s bash entrypoint.sh factory-loop.sh test/supervisor.sh
+      - run: shellcheck -s bash entrypoint.sh factory-loop.sh factory-waker.sh test/supervisor.sh
       - run: bash test/supervisor.sh
   image:
     runs-on: ubuntu-latest
