@@ -10,6 +10,8 @@
 #   7. a waker that exits is started again, and a stop ends the supervisor with exit 0
 #   8. a missing checkout is cloned before the waker starts
 #   9. a waker that fails gets the newest main before it starts again
+#  10. every waker start gets the newest main first
+#  11. the waker's npm dependencies are installed before it starts, once per lockfile
 # Case 1 exists because the first draft started the loop through a shell function, which
 # left a subshell in between, and the stop signal never reached the loop.
 set -uo pipefail
@@ -174,20 +176,55 @@ expect wakerclone "^exit 0"
 
 # Case 9: a merge to main that breaks the waker at start, then the fix merged after it. The
 # waker cannot pull the fix itself, so the supervisor must, or the factory never wakes again.
+# The broken v1 merges the v2 fix upstream itself before it exits, so the fix lands after the
+# update before the first start, and only the update before the restart can bring it.
 echo "case 9: a failing waker gets the newest main"
 G="git -c user.name=test -c user.email=test@example.invalid"
+V2='process.on("SIGTERM", () => process.exit(0)); console.log("waker v2 running"); setInterval(() => {}, 1000)'
 rm -rf "$T/home/.factory" "$T/home/workspace/software-factory" "$T/upstream"
 mkdir -p "$T/upstream/orchestrator"
 $G init -q -b main "$T/upstream"
-echo 'console.log("waker v1 broken"); process.exit(3)' > "$T/upstream/orchestrator/waker.mjs"
+cat > "$T/merge-fix.sh" <<FIX
+printf '%s\n' '$V2' > "$T/upstream/orchestrator/waker.mjs"
+$G -C "$T/upstream" commit -qam v2
+FIX
+printf '%s\n' "import { execFileSync } from \"node:child_process\"; console.log(\"waker v1 broken\"); execFileSync(\"bash\", [\"$T/merge-fix.sh\"]); process.exit(3)" \
+  > "$T/upstream/orchestrator/waker.mjs"
 $G -C "$T/upstream" add -A && $G -C "$T/upstream" commit -qm v1
 git clone -q "$T/upstream" "$T/home/workspace/software-factory"
-echo 'process.on("SIGTERM", () => process.exit(0)); console.log("waker v2 running"); setInterval(() => {}, 1000)' \
-  > "$T/upstream/orchestrator/waker.mjs"
-$G -C "$T/upstream" commit -qam v2
-run_case wakerupdate 4 FACTORY_WAKER_ENABLED=1
-order wakerupdate "waker ended (exit 3)" "updating the checkout"
-order wakerupdate "updating the checkout" "waker v2 running"
+run_case wakerupdate 5 FACTORY_WAKER_ENABLED=1
+order wakerupdate "waker v1 broken" "waker ended (exit 3)"
+order wakerupdate "waker ended (exit 3)" "Fast-forward"
+order wakerupdate "Fast-forward" "waker v2 running"
 expect wakerupdate "^exit 0"
 
-if [ "$failed" = 0 ]; then echo "supervisor: all nine cases pass"; else echo "supervisor: FAILED"; exit 1; fi
+# Case 10: a redeploy onto a checkout behind main. The waker loads its code once, at start, so
+# the supervisor fast-forwards before every start, not only after a failure.
+echo "case 10: every waker start gets the newest main first"
+rm -rf "$T/home/.factory" "$T/home/workspace/software-factory" "$T/upstream"
+mkdir -p "$T/upstream/orchestrator"
+$G init -q -b main "$T/upstream"
+printf '%s\n' "${V2/v2/v1}" > "$T/upstream/orchestrator/waker.mjs"
+$G -C "$T/upstream" add -A && $G -C "$T/upstream" commit -qm v1
+git clone -q "$T/upstream" "$T/home/workspace/software-factory"
+printf '%s\n' "$V2" > "$T/upstream/orchestrator/waker.mjs"
+$G -C "$T/upstream" commit -qam v2
+run_case wakerfresh 3 FACTORY_WAKER_ENABLED=1
+order wakerfresh "Fast-forward" "waker v2 running"
+if grep -q "waker v1 running" "$T/wakerfresh.out"; then echo "FAIL: wakerfresh: the checkout behind main ran"; failed=1; fi
+expect wakerfresh "^exit 0"
+
+# Case 11: the waker's checkout has a lockfile. On 2026-11-05 the box's waker checkout had no
+# node_modules at all, so the run-history sync could not load the Postgres driver. The
+# supervisor installs before the start, and only once per lockfile.
+echo "case 11: the waker's dependencies are installed before it starts"
+printf '#!/bin/bash\necho "npm $*"\n' > "$T/bin/npm" && chmod +x "$T/bin/npm"
+echo '{"lockfileVersion": 3}' > "$T/upstream/package-lock.json"
+$G -C "$T/upstream" add -A && $G -C "$T/upstream" commit -qm lock
+run_case wakerdeps 3 FACTORY_WAKER_ENABLED=1
+order wakerdeps "npm ci --no-audit --no-fund" "waker v2 running"
+run_case wakerdeps2 3 FACTORY_WAKER_ENABLED=1
+if grep -q "npm ci" "$T/wakerdeps2.out"; then echo "FAIL: wakerdeps2: npm ci ran again for the same lockfile"; failed=1; fi
+expect wakerdeps2 "waker v2 running"
+
+if [ "$failed" = 0 ]; then echo "supervisor: all eleven cases pass"; else echo "supervisor: FAILED"; exit 1; fi
