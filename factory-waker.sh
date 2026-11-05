@@ -57,6 +57,22 @@ update_checkout() {
   git -C "$DIR" pull --ff-only 2>&1 | tee -a "$LOG"
 }
 
+# The waker's run-history sync needs the checkout's npm dependencies (the Postgres driver).
+# npm ci only when the lockfile changed since the last install, as factory-loop.sh does, with a
+# stamp of its own because the two scripts use different checkouts.
+install_if_needed() {
+  local lock="$DIR/package-lock.json" stamp="$FACTORY_HOME/.waker-package-lock.sha256" sum
+  [ -f "$lock" ] || return 0
+  sum=$(sha256sum "$lock" | cut -d' ' -f1)
+  [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$sum" ] && return 0
+  say "package-lock.json changed; running npm ci"
+  if (cd "$DIR" && npm ci --no-audit --no-fund) 2>&1 | tee -a "$LOG"; then
+    echo "$sum" > "$stamp"
+  else
+    say "npm ci failed; the waker runs with what is installed"
+  fi
+}
+
 say "started; log $LOG"
 while :; do
   [ "$stopping" = 1 ] && { say "stopped"; exit 0; }
@@ -67,6 +83,9 @@ while :; do
     # A stop that landed during the clone (where bash runs the trap only once it ends) must not
     # start the waker.
     [ "$stopping" = 1 ] && { say "stopped"; exit 0; }
+    # The waker loads its code once, at start, so the checkout is brought up to date first.
+    update_checkout
+    install_if_needed
     say "waker starting"
     # exec, so the process id is the waker's own and a stop signal reaches it. The output goes to
     # Railway's log and to the log file on the volume.
@@ -78,7 +97,6 @@ while :; do
     status=$?
     waker_pid=""
     say "waker ended (exit $status)"
-    [ "$status" != 0 ] && [ "$stopping" = 0 ] && update_checkout
   else
     say "no checkout yet; trying again in $DELAY seconds"
   fi
